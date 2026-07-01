@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     SECRET_KEY: str = "change-me-in-production"
     
-    # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/leadgen_db"
+    # Database - Support both PostgreSQL and SQLite
+    DATABASE_URL: str = ""  # Will auto-detect if empty
     
     # Redis & Celery
     REDIS_URL: str = "redis://localhost:6379/0"

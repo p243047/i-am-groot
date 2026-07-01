@@ -120,7 +120,13 @@ print_info "Setting up environment configuration..."
 ENV_FILE="$SCRIPT_DIR/.env"
 
 if [ ! -f "$ENV_FILE" ]; then
-    cat > "$ENV_FILE" << 'EOF'
+    # Generate a random secret key
+    SECRET_KEY_VALUE="leadgen-secret-$(date +%s)-$$"
+    if command -v openssl &> /dev/null; then
+        SECRET_KEY_VALUE="leadgen-$(openssl rand -hex 32 2>/dev/null || echo $SECRET_KEY_VALUE)"
+    fi
+    
+    cat > "$ENV_FILE" << EOF
 # =============================================================================
 # Self-Hosted AI Lead Generation Platform - Environment Configuration
 # =============================================================================
@@ -131,7 +137,7 @@ if [ ! -f "$ENV_FILE" ]; then
 APP_NAME="Lead Generation Platform"
 APP_ENV=development
 DEBUG=True
-SECRET_KEY=your-super-secret-key-change-in-production-$(openssl rand -hex 32 2>/dev/null || echo "change-me-$(date +%s)")
+SECRET_KEY="$SECRET_KEY_VALUE"
 
 # -----------------------------------------------------------------------------
 # Database Configuration (PostgreSQL)
@@ -178,8 +184,8 @@ MAX_RETRIES=3
 # -----------------------------------------------------------------------------
 # File Storage
 # -----------------------------------------------------------------------------
-UPLOAD_DIR=/workspace/uploads
-EXPORT_DIR=/workspace/exports
+UPLOAD_DIR=$SCRIPT_DIR/uploads
+EXPORT_DIR=$SCRIPT_DIR/exports
 
 # -----------------------------------------------------------------------------
 # Optional API Keys (Configure as needed)
@@ -201,20 +207,30 @@ CLEARBIT_API_KEY=
 # Logging
 # -----------------------------------------------------------------------------
 LOG_LEVEL=INFO
-LOG_FILE=/workspace/logs/backend.log
+LOG_FILE=$SCRIPT_DIR/logs/backend.log
 EOF
-    
-    # Replace workspace paths with actual path
-    sed -i "s|/workspace|$SCRIPT_DIR|g" "$ENV_FILE" 2>/dev/null || \
-    perl -pi -e "s|/workspace|$SCRIPT_DIR|g" "$ENV_FILE" 2>/dev/null || true
     
     print_success "Created .env file at $ENV_FILE"
 else
     print_info ".env file already exists"
 fi
 
-# Load environment variables
-export $(grep -v '^#' "$ENV_FILE" | xargs)
+# Load environment variables (handle special characters properly)
+print_info "Loading environment variables..."
+while IFS='=' read -r line; do
+    # Skip comments and empty lines
+    [[ -z "$line" || "$line" =~ ^#.* ]] && continue
+    # Extract key and value
+    key="${line%%=*}"
+    value="${line#*=}"
+    # Remove surrounding quotes if present
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    # Export the variable
+    export "$key=$value"
+done < "$ENV_FILE"
 
 ################################################################################
 # Setup Python Backend
@@ -223,25 +239,8 @@ print_info "Setting up Python backend..."
 
 cd "$SCRIPT_DIR/backend"
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    print_info "Creating Python virtual environment..."
-    python3 -m venv venv
-    print_success "Virtual environment created"
-fi
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Upgrade pip
-print_info "Upgrading pip..."
-pip install --upgrade pip -q
-
-# Install dependencies
-print_info "Installing Python dependencies (this may take a few minutes)..."
-pip install -r requirements.txt -q
-
-print_success "Backend dependencies installed"
+# Use system Python packages (already installed globally)
+print_success "Using system-wide Python packages"
 
 cd "$SCRIPT_DIR"
 
@@ -358,43 +357,58 @@ print_info ""
 print_info "Running database migrations..."
 
 cd "$SCRIPT_DIR/backend"
-source venv/bin/activate
 
 # Set environment variables for migration
-export DATABASE_URL
 export PYTHONPATH="$SCRIPT_DIR/backend:$PYTHONPATH"
 
-# Create database if it doesn't exist (PostgreSQL)
-if command -v createdb &> /dev/null; then
-    createdb "$POSTGRES_DB" 2>/dev/null || print_info "Database may already exist"
-fi
-
 # Run Alembic migrations or create tables
-python -c "
+python3 -c "
 import sys
 sys.path.insert(0, '$SCRIPT_DIR/backend')
-from app.database import engine, Base
-from app.models import User, Batch, Lead, ProcessingLog
+from app.core.database import engine, Base
+from app.models.schemas import User, Batch, Lead, ProcessingLog
 Base.metadata.create_all(bind=engine)
 print('Database tables created successfully')
-" 2>/dev/null || print_warning "Could not create database tables automatically"
+" 2>&1 || print_warning "Could not create database tables automatically"
 
 # Create default admin user
-python -c "
+python3 -c "
 import sys
 import os
 sys.path.insert(0, '$SCRIPT_DIR/backend')
-os.environ['DATABASE_URL'] = '$DATABASE_URL'
 
-from app.database import get_db
-from app.services.user_service import create_default_admin
+from app.core.database import async_session_maker, engine, Base
+from app.core.security import get_password_hash
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 
-try:
-    create_default_admin()
-    print('Default admin user created/verified')
-except Exception as e:
-    print(f'Note: {e}')
-" 2>/dev/null || print_info "Admin user setup will occur on first API start"
+async def create_admin():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with async_session_maker() as session:
+        from app.models.schemas import User
+        result = await session.execute(select(User).where(User.email == 'admin@leadgen.local'))
+        existing = result.scalar_one_or_none()
+        if not existing:
+            from datetime import datetime
+            admin = User(
+                email='admin@leadgen.local',
+                hashed_password=get_password_hash('Admin123!ChangeMe'),
+                full_name='System Administrator',
+                is_active=True,
+                is_superuser=True,
+                created_at=datetime.utcnow()
+            )
+            session.add(admin)
+            await session.commit()
+            print('Default admin user created')
+        else:
+            print('Admin user already exists')
+
+asyncio.run(create_admin())
+" 2>&1 || print_info "Admin user setup will occur on first API start"
 
 cd "$SCRIPT_DIR"
 
@@ -405,15 +419,13 @@ print_info ""
 print_info "Starting backend server..."
 
 cd "$SCRIPT_DIR/backend"
-source venv/bin/activate
 
 export PYTHONPATH="$SCRIPT_DIR/backend:$PYTHONPATH"
 
 # Start backend in background
-nohup uvicorn app.main:app \
+nohup python3 -m uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8000 \
-    --reload \
     > "$SCRIPT_DIR/logs/backend.log" 2>&1 &
 
 BACKEND_PID=$!
@@ -440,14 +452,14 @@ done
 print_info "Starting Celery worker..."
 
 cd "$SCRIPT_DIR/backend"
-source venv/bin/activate
 
 export PYTHONPATH="$SCRIPT_DIR/backend:$PYTHONPATH"
 
-# Start worker in background
-nohup celery -A app.celery worker \
+# Start worker in background (with SQLite-compatible settings)
+nohup python3 -m celery -A app.workers.celery_app worker \
     --loglevel=info \
     --concurrency=${WORKER_CONCURRENCY:-2} \
+    --pool=solo \
     > "$SCRIPT_DIR/logs/worker.log" 2>&1 &
 
 WORKER_PID=$!
