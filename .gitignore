@@ -1,61 +1,113 @@
-```
-# Python
+```bash
+# Environment
+.env
+.env.local
+.env.*
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
+*.pyc
 __pycache__/
-*.py[cod]
-*$py.class
+*.class
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+*.jar
+*.war
+*.zip
+*.tar.gz
+*.tgz
+*.tar.bz2
+*.tar.xz
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Python specific
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
+*.egg-info/
 .eggs/
+.mypy_cache/
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/
+.hg/
+.svn/
+.wafpickle-*
+build/
+dist/
+develop-eggs/
+.installed.cfg
 lib/
 lib64/
 parts/
 sdist/
 var/
-wheels/
-*.egg-info/
-.installed.cfg
 *.egg
-
-# Virtual environments
-venv/
-env/
-ENV/
-.venv/
-.env/
-
-# Testing
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
 .coverage
-coverage/
-htmlcov/
-.nosetests
-.unit_test_results.xml
-.pytest_cache/
 .coverage.*
-
-# Logs
-*.log
-
-# IDE
-.vscode/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.mo
+*.pot
+.vagrant/
+Gemfile.lock
+ScrapyTest.egg-info/
+.settings/
+.pydevproject
+.project
+.pycharm/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
+```
 
-# Environment variables
-.env
-.env.local
-.env.*
+Wait, let me reconsider. The only files added are shell scripts (`run-native.sh` and `stop.sh`), which are source files. There are no build artifacts, dependencies, or temporary files in the change list. Following rule #6, since the change list contains only source files and no build artifacts, dependencies, or temp files, the output should be empty.
 
-# Docker
-.dockerenv
+```bash
+
 ```
